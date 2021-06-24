@@ -1,0 +1,57 @@
+##########################################################################################
+# Property rights AgilizTech
+# File Name : DevOps-PostgreSQLDB-Backup.yml
+# Date of create : 21-04-2020
+# Author : DevOps Teams
+# Usage : DB backups for POSTGRES  Production.
+# Argument to be passed from AWX : Host Name, DB Name, S3 Bucket Name"
+# Revision history :
+#
+##########################################################################################
+--- 
+- 
+  hosts: "{{ ansible_hosts }}"
+  become: true
+  become_method: sudo
+  tasks: 
+
+    - name: Create a directory thirdeye if not exists
+      file:
+        path: /opt/thirdeye
+        state: directory
+        owner: "{{ postgres_user }}"
+        group: "{{ postgres_user }}"
+        mode: '0755'
+        recurse: yes
+    - 
+      name: "DB Backup"
+      postgresql_db: 
+        login_user: "{{ postgres_user }}"
+        name: "{{ postgres_db }}"
+        state: dump
+        target: "/opt/thirdeye/{{ansible_date_time.date}}-{{ postgres_db }}.sql.gz"
+    - 
+      aws_s3: 
+        aws_access_key: "{{ aws_access_key_id }}"
+        aws_secret_key: "{{ aws_secret_access_key }}"
+        bucket: "{{ aws_s3_bucket }}"
+        mode: put
+        object: "{{ansible_date_time.date}}-{{ postgres_db }}.sql.gz"
+        src: "/opt/thirdeye/{{ansible_date_time.date}}-{{ postgres_db }}.sql.gz"
+      name: "Send DB backup to s3"
+    
+    - 
+      file: 
+        path: "/opt/thirdeye/{{ansible_date_time.date}}-{{ postgres_db }}.sql.gz"
+        state: absent
+      name: "Recursively remove"
+    
+    - s3_lifecycle:
+        aws_access_key: "{{ aws_access_key_id }}"
+        aws_secret_key: "{{ aws_secret_access_key }}"
+        name: "{{ aws_s3_bucket }}"
+        expiration_days: "{{ s3_expire_policy_days }}"
+        rule_id: dbretention
+        status: enabled
+        state: present
+      run_once: true
